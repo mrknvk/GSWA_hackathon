@@ -1,1 +1,10 @@
 /data/INTERIM_HyLogger_Dataset_Package_GDA2020_DB/DATABASES/
+/data/extracted_data/
+/download_mineral_logs.py
+/src/gswa_hackathon/download_mineral_logs.py
+/tests/test_download_mineral_logs.py
+.DS_Store
+.venv/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
