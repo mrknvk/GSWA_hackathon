@@ -1,5 +1,6 @@
 /data/INTERIM_HyLogger_Dataset_Package_GDA2020_DB/DATABASES/
 /data/extracted_data/
+/ml_pipeline/*.png
 /download_mineral_logs.py
 /src/gswa_hackathon/download_mineral_logs.py
 /tests/test_download_mineral_logs.py
