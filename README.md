@@ -42,7 +42,7 @@ in the package index and store them locally under:
 data/extracted_data/mineral_logs/
 ```
 
-An matching algorithm is contained in this repository that allows merging by matching ids and cleansing of both datasets.
+A matching algorithm is included in this repository that allows merging by matching ids and cleansing of both datasets. This allows easy reproducibility of the utilized dataset for training.
 
 
 ## Installation
