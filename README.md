@@ -44,6 +44,47 @@ data/extracted_data/mineral_logs/
 
 Both the source database and extracted mineral logs are excluded from this Repo.
 
+## Cohort and Gold Distribution
+
+The current pilot uses 22 drillholes across BADGEBUP, BGM Exploration 2007-2008,
+MtMorgan, and Welcome Well. It is a fixed, deliberately shortlisted cohort,
+not a representative sample of the Yilgarn Craton. See
+[the cohort summary](reports/cohort_summary.md) for the documented selection
+criteria, Au distributions before and after interval matching, and limitations.
+
+The binary target is `Au_PPM >= 1.0`. In the matched model cohort all positive
+intervals come from BADGEBUP, although other selected projects contain positive
+assay records before matching. Project-related confounding must therefore be
+investigated before claiming a transferable Au signature.
+
+## Public Repository Policy
+
+- Keep code, notebook source, synthetic tests, attribution, and official metadata.
+- Keep source data, extracted tables, sample-level predictions, coordinates,
+  model artifacts, and local figures outside Git. A CSV is not automatically
+  safe to publish just because it is a table.
+- Put reviewed, aggregated result tables and reports under `reports/`.
+  Any published figures must be reviewed separately for source-data disclosure.
+- Do not commit notebook execution outputs or widget state: they can embed
+  sample-level tables and images even when the source CSVs are ignored.
+
+Before preparing a public commit, clear notebook outputs:
+
+```bash
+PYTHONPATH=src uv run python -m gswa_hackathon.prepare_public_notebooks --clear
+```
+
+Check without changing files:
+
+```bash
+PYTHONPATH=src uv run python -m gswa_hackathon.prepare_public_notebooks
+uv run pytest
+```
+
+These safeguards apply to the current working tree and future commits. They do
+not remove data from old Git history; history rewriting is intentionally out
+of scope. Ignoring a file also does not untrack an already tracked file.
+
 ## Installation
 
 Install [`uv`](https://docs.astral.sh/uv/), clone this repository, and create
@@ -53,7 +94,7 @@ the locked Python 3.12 environment:
 uv sync
 ```
 
-This installs NumPy, pandas, Matplotlib, SciPy, scikit-learn, Pytest, and Ruff
+This installs NumPy, pandas, Matplotlib, SciPy, scikit-learn, XGBoost, Pytest, and Ruff
 inside `.venv`.
 
 Commands can run inside the managed environment without manual activation:

@@ -1,5 +1,25 @@
-/data/INTERIM_HyLogger_Dataset_Package_GDA2020_DB/DATABASES/
-/data/extracted_data/
+# Data is local by default; only the official licence and metadata are public.
+/data/**
+!/data/INTERIM_HyLogger_Dataset_Package_GDA2020_DB/
+!/data/INTERIM_HyLogger_Dataset_Package_GDA2020_DB/DOCUMENTS/
+!/data/INTERIM_HyLogger_Dataset_Package_GDA2020_DB/DOCUMENTS/Licence_CCBY4_intrim.pdf
+!/data/INTERIM_HyLogger_Dataset_Package_GDA2020_DB/DOCUMENTS/METADATA/
+!/data/INTERIM_HyLogger_Dataset_Package_GDA2020_DB/DOCUMENTS/METADATA/DATADICTIONARY_INTERIM_Hylogger_GDA2020.pdf
+!/data/INTERIM_HyLogger_Dataset_Package_GDA2020_DB/DOCUMENTS/METADATA/METADATA_INTERIM_Hylogger_GDA2020.pdf
+
+# Protect common source-data filenames even outside the standard data directory.
+SM_*.csv
+WAMEX_*.csv
+HyLogger_Dataset_Index.csv
+*.sqlite
+*.sqlite3
+*.db
+*.zip
+*.7z
+/raw/
+/raw_data/
+/raw_models/
+/finetuned_models/
 /ml_pipeline/*.png
 /download_mineral_logs.py
 /src/gswa_hackathon/download_mineral_logs.py

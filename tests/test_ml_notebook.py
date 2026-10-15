@@ -178,7 +178,6 @@ def test_spectral_plots_use_only_observed_training_values(tmp_path, monkeypatch)
         "spectral-plot-setup",
         "feature-class-distributions",
         "feoh-pair-scatter",
-        "feoh-au-scatter",
     ]:
         exec(code_cells[cell_id], namespace)
 
@@ -189,15 +188,11 @@ def test_spectral_plots_use_only_observed_training_values(tmp_path, monkeypatch)
         "11300D_Carbonate": [1, 2],
     }
     assert namespace["feoh_pairs"].index.tolist() == [10, 40]
-    au_plot_data = namespace["au_plot_data"]
-    assert au_plot_data.index.tolist() == [10, 20, 40]
-    np.testing.assert_allclose(au_plot_data["log1p_Au_PPM"], np.log1p([0.0, 1.0, 3.0]))
     pd.testing.assert_frame_equal(train, original_train)
     plot_dir = tmp_path / "data" / "extracted_data" / "plots"
     for filename in [
         "spectral_by_class.png",
         "feoh_position_vs_depth.png",
-        "feoh_depth_vs_au_by_project.png",
     ]:
         assert (plot_dir / filename).stat().st_size > 0
 
