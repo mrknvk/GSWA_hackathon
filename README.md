@@ -52,10 +52,49 @@ not a representative sample of the Yilgarn Craton. See
 [the cohort summary](reports/cohort_summary.md) for the documented selection
 criteria, Au distributions before and after interval matching, and limitations.
 
-The binary target is `Au_PPM >= 1.0`. In the matched model cohort all positive
+The binary target is `Au_PPM >= 1.0`. In the matched pilot cohort all positive
 intervals come from BADGEBUP, although other selected projects contain positive
 assay records before matching. Project-related confounding must therefore be
 investigated before claiming a transferable Au signature.
+
+## Expanding Beyond the Pilot
+
+The initial 22 holes are not all eligible Yilgarn holes. Inventory the local
+package and generate a GDA2020 collar map without downloading anything:
+
+```bash
+PYTHONPATH=src uv run python -m gswa_hackathon.expand_yilgarn
+```
+
+Acquire all unambiguously mapped candidate logs and apply the existing matching
+rules (four concurrent requests, validated caches, HTTPS and checksums):
+
+```bash
+PYTHONPATH=src uv run python -m gswa_hackathon.expand_yilgarn --download
+```
+
+Inspect `ml_pipeline/yilgarn_inventory.ipynb`. Local results under
+`data/extracted_data/yilgarn/` include the map, per-collar inventory, acquisition
+manifest, full eligibility audit, numeric issues, and project-level summary.
+The new `ml_dataset_expanded.csv` contains the same ten spectral predictors and
+metadata as the pilot. Both positive and negative holes are considered; no
+grade-dependent selection is made after inventory eligibility.
+
+The pilot files and default ML experiment remain unchanged. To train on the
+expanded output later, explicitly set `DATASET_VARIANT = "expanded"` in
+`ml_pipeline/ml.ipynb`. This establishes a new experimental cohort and split;
+do not compare its scores as though the original holdout were unchanged.
+Inspect unknown project labels and positive-project coverage first.
+
+See [the expansion design](docs/architecture/yilgarn-expansion.md) for boundaries
+and scientific safeguards. A source link does not guarantee a readable,
+schema-compatible or interval-matched training example. Failures are recorded,
+not silently removed or replaced with zero Au.
+
+The first completed run is documented in
+[the aggregated expansion report](reports/yilgarn_expansion_summary.md): 457
+usable holes and 46,336 intervals, including 1,067 intervals at or above 1 ppm.
+The report separates preparation results from any future model evaluation.
 
 ## Public Repository Policy
 

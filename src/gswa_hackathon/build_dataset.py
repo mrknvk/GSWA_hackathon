@@ -11,6 +11,7 @@ malformed text and infinities become NaN and are reported.
 from __future__ import annotations
 
 import argparse
+import csv
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -28,6 +29,16 @@ DEFAULT_OUTPUT_PATH = PROJECT_ROOT / "data/extracted_data/mineral_au_dataset.csv
 DEPTH_FROM = "Depth_from_(m)"
 DEPTH_TO = "Depth_to_(m)"
 TARGET = "Au_PPM"
+SPECTRAL_FEATURES_SWIR = [
+    "900D_Fe",
+    "900W_Fe",
+    "1900D_Water",
+    "2200D_AlOH",
+    "2200W_AlOH",
+    "2250D_FeOH",
+    "2250W_FeOH",
+]
+SPECTRAL_FEATURES_TIR = ["8625D_Quartz", "11300D_Carbonate", "11300W_Carbonate"]
 
 # Assumed recording tolerance (m) for each boundary; there is no relative
 # tolerance and depths are never rounded. On the current cohort every retained
@@ -85,6 +96,22 @@ STATUSES = (
     "negative_au",
 )
 ISSUE_COLUMNS = ["Source", "Dataset_ID", "column", "malformed", "infinite"]
+HOLE_AUDIT_COLUMNS = [
+    "Dataset_ID",
+    "CollarId",
+    "Project",
+    "status",
+    "error",
+    "log_rows",
+    "retained_match_rows",
+    "common_cohort_rows",
+    "anomalies_ge_1ppm",
+    "no_usable_swir",
+    "no_usable_tir",
+    *STATUSES[1:],
+    "duplicates_removed",
+    "assay_invalid_interval",
+]
 
 
 def to_numeric_checked(
@@ -132,19 +159,41 @@ def validate_descriptors(frame: pd.DataFrame, columns: Sequence[str]) -> None:
 
 def read_mineral_log(path: Path, expected_id: str | None = None) -> pd.DataFrame:
     """Read one SM_*.csv: metadata block on top, data table below the depth header."""
-    with path.open(encoding="utf-8") as handle:
-        lines = handle.read().splitlines()
-    dataset_id = next(
-        line.split(",")[1] for line in lines if line.startswith("Dataset,")
-    )
+    dataset_ids = []
+    header = None
+    try:
+        with path.open(encoding="utf-8-sig", newline="") as handle:
+            reader = csv.reader(handle, strict=True)
+            for header_row, row in enumerate(reader):
+                if len(row) > 1 and row[0] == "Dataset":
+                    dataset_ids.append(row[1].strip())
+                if row and row[0] == DEPTH_FROM:
+                    header = row
+                    break
+    except csv.Error as exc:
+        raise ValueError(f"{path.name} has malformed CSV metadata: {exc}") from exc
+    if len(dataset_ids) != 1 or not dataset_ids[0]:
+        raise ValueError(
+            f"{path.name} requires one declared Dataset, found {dataset_ids!r}"
+        )
+    dataset_id = dataset_ids[0]
     if expected_id is not None and dataset_id != expected_id:
         raise ValueError(
             f"{path.name} declares Dataset {dataset_id!r}, expected {expected_id!r}"
         )
-    header_row = next(
-        i for i, line in enumerate(lines) if line.startswith(DEPTH_FROM)
+    if header is None:
+        raise ValueError(
+            f"{path.name} has no depth header starting with {DEPTH_FROM!r}"
+        )
+    required = [DEPTH_FROM, DEPTH_TO, *SPECTRAL_FEATURES_SWIR, *SPECTRAL_FEATURES_TIR]
+    duplicates = [column for column in required if header.count(column) > 1]
+    if duplicates:
+        raise ValueError(
+            f"{path.name} has duplicate required column headers: {duplicates}"
+        )
+    table = pd.read_csv(
+        path, skiprows=header_row, na_values=["N.A."], dtype=str, encoding="utf-8-sig"
     )
-    table = pd.read_csv(path, skiprows=header_row, na_values=["N.A."], dtype=str)
     table, issues = to_numeric_checked(table, list(table.columns))
     table.insert(0, "Dataset_ID", dataset_id)
     table.attrs["numeric_issues"] = issues
@@ -184,6 +233,9 @@ def match_assays(
     (one assay per log row) and a per-log-row outcome frame with a ``status``
     from STATUSES and the number of duplicate assays removed.
 
+    Candidates use sorted start-depth windows per collar, not a full crossproduct.
+    Both boundaries are then checked with the original absolute comparisons.
+
     All matching assays count, including those with missing or nonfinite Au.
     A log row keeps one assay only if every candidate is an identical record
     (same boundaries, Au and CompanySampleId); then the lowest AssayFlatDataId is
@@ -205,7 +257,56 @@ def match_assays(
     outcome.loc[~valid_log, "status"] = "invalid_log_interval"
 
     assays = assays[valid_interval(assays["Assay_FromDepth"], assays["Assay_ToDepth"])]
-    candidates = logs[valid_log].merge(assays, on="CollarId")
+    assays = assays.reset_index(drop=True).assign(
+        _assay_row=lambda frame: np.arange(len(frame))
+    )
+    assay_groups = {
+        None if pd.isna(collar) else collar: group.sort_values(
+            "Assay_FromDepth", kind="stable"
+        )
+        for collar, group in assays.groupby("CollarId", sort=False, dropna=False)
+    }
+    candidate_tables = []
+    # Widen the tolerance for subtraction rounding, then round search bounds
+    # outward for addition rounding. Only the original comparisons below decide
+    # membership; these conservative windows must not discard boundary matches.
+    search_atol = np.nextafter(DEPTH_ATOL_M, np.inf)
+    for collar, hole_logs in logs[valid_log].groupby(
+        "CollarId", sort=False, dropna=False
+    ):
+        hole_assays = assay_groups.get(None if pd.isna(collar) else collar)
+        if hole_assays is None:
+            continue
+        starts = hole_logs[DEPTH_FROM].to_numpy()
+        assay_starts = hole_assays["Assay_FromDepth"].to_numpy()
+        left = np.searchsorted(
+            assay_starts, np.nextafter(starts - search_atol, -np.inf), side="left"
+        )
+        right = np.searchsorted(
+            assay_starts, np.nextafter(starts + search_atol, np.inf), side="right"
+        )
+        counts = right - left
+        pair_count = int(counts.sum())
+        if not pair_count:
+            continue
+        offsets = np.cumsum(counts) - counts
+        assay_positions = (
+            np.repeat(left, counts) + np.arange(pair_count) - np.repeat(offsets, counts)
+        )
+        selected_logs = hole_logs.iloc[
+            np.repeat(np.arange(len(hole_logs)), counts)
+        ].copy()
+        selected_logs["_assay_row"] = hole_assays["_assay_row"].to_numpy()[
+            assay_positions
+        ]
+        candidate_tables.append(
+            selected_logs.merge(hole_assays, on=["CollarId", "_assay_row"])
+        )
+    candidates = (
+        pd.concat(candidate_tables, ignore_index=True)
+        if candidate_tables
+        else logs.iloc[:0].merge(assays.iloc[:0], on="CollarId")
+    ).drop(columns="_assay_row")
     aligned = (
         (candidates[DEPTH_FROM] - candidates["Assay_FromDepth"]).abs() <= DEPTH_ATOL_M
     ) & ((candidates[DEPTH_TO] - candidates["Assay_ToDepth"]).abs() <= DEPTH_ATOL_M)
@@ -359,6 +460,159 @@ def build_dataset(
     ):
         raise AssertionError("Exclusion counts do not reconcile with the dataset")
     return dataset, report, pd.DataFrame(issues, columns=ISSUE_COLUMNS)
+
+
+def build_expanded_dataset(
+    sources: pd.DataFrame, logs_dir: Path, csv_dir: Path = CSV_DIR
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """Build the common SWIR/TIR cohort from an unambiguous source manifest.
+
+    ``local_path`` is authoritative, absolute or relative to PROJECT_ROOT, not
+    inferred from Dataset_ID or the download directory ``logs_dir``. Project
+    must be explicit (including the caller's chosen unknown-project label).
+    Returns dataset, one audit row per source, and ISSUE_COLUMNS numeric issues.
+    Coverage exclusions count assay-retained rows; anomalies count final rows.
+    Unavailable audit counts remain missing for unreadable/incompatible logs.
+    """
+    required = ["Dataset_ID", "CollarId", "Project", "local_path"]
+    missing = [column for column in required if column not in sources.columns]
+    if missing:
+        raise ValueError(f"Missing source columns: {missing}")
+    if sources[required].isna().any().any():
+        raise ValueError("Source mapping fields must not be missing")
+    for column in ["Dataset_ID", "CollarId"]:
+        if sources[column].duplicated().any():
+            raise ValueError(f"Duplicate {column} in source mapping")
+    for column in ["Dataset_ID", "Project"]:
+        if (
+            not sources[column]
+            .map(lambda value: isinstance(value, str) and bool(value.strip()))
+            .all()
+        ):
+            raise ValueError(f"Source {column} must contain explicit nonempty strings")
+
+    features = SPECTRAL_FEATURES_SWIR + SPECTRAL_FEATURES_TIR
+    output_columns = LEADING_COLUMNS + features
+    if sources.empty:
+        return (
+            pd.DataFrame(columns=output_columns),
+            pd.DataFrame(columns=HOLE_AUDIT_COLUMNS),
+            pd.DataFrame(columns=ISSUE_COLUMNS),
+        )
+
+    numeric_assay_columns = ["FromDepth", "ToDepth", TARGET]
+    assays = pd.read_csv(
+        csv_dir / "WAMEX_AssayFlatData.csv",
+        usecols=["AssayFlatDataId", "CollarId", "CompanySampleId"]
+        + numeric_assay_columns,
+        dtype={
+            "CompanySampleId": "string",
+            **dict.fromkeys(numeric_assay_columns, str),
+        },
+        low_memory=False,
+    )
+    assays = assays[assays["CollarId"].isin(sources["CollarId"])]
+    assays, assay_issues = to_numeric_checked(assays, numeric_assay_columns)
+    issues = [
+        {"Source": "assay", "Dataset_ID": "(all cohort assays)", **issue}
+        for issue in assay_issues
+    ]
+    assays = assays.rename(
+        columns={"FromDepth": "Assay_FromDepth", "ToDepth": "Assay_ToDepth"}
+    )
+    assays_by_collar = dict(tuple(assays.groupby("CollarId", sort=False)))
+    empty_assays = assays.iloc[:0]
+
+    tables = []
+    audit_rows = []
+    for source in sources[required].itertuples(index=False):
+        dataset_id, collar_id, project, local_path = source
+        audit = dict.fromkeys(HOLE_AUDIT_COLUMNS, pd.NA)
+        audit.update(
+            Dataset_ID=dataset_id,
+            CollarId=collar_id,
+            Project=project,
+            status="invalid_log",
+            error="",
+        )
+        audit_rows.append(audit)
+        hole_assays = assays_by_collar.get(collar_id, empty_assays)
+        audit["assay_invalid_interval"] = int(
+            (
+                ~valid_interval(
+                    hole_assays["Assay_FromDepth"], hole_assays["Assay_ToDepth"]
+                )
+            ).sum()
+        )
+        try:
+            path = Path(local_path)
+            if not path.is_absolute():
+                path = PROJECT_ROOT / path
+            logs = read_mineral_log(path, expected_id=dataset_id)
+        except (
+            OSError,
+            UnicodeError,
+            ValueError,
+            TypeError,
+            StopIteration,
+            IndexError,
+        ) as exc:
+            audit["error"] = f"{type(exc).__name__}: {exc}"
+            continue
+
+        audit["log_rows"] = len(logs)
+        issues.extend(
+            {"Source": "mineral_log", "Dataset_ID": dataset_id, **issue}
+            for issue in logs.attrs["numeric_issues"]
+        )
+        missing = [c for c in [DEPTH_FROM, DEPTH_TO, *features] if c not in logs]
+        if missing:
+            audit.update(
+                status="incompatible_schema",
+                error=f"Missing required columns: {missing}",
+            )
+            continue
+        if logs.duplicated(SAMPLE_KEY_COLUMNS).any():
+            audit["error"] = "Duplicate depth intervals within a mineral log"
+            continue
+
+        logs = logs[SAMPLE_KEY_COLUMNS + features].copy()
+        logs.attrs.clear()
+        logs["CollarId"] = collar_id
+        logs["Project"] = project
+        matched, outcome = match_assays(logs, hole_assays)
+        mask = common_cohort_mask(
+            matched, SPECTRAL_FEATURES_SWIR, SPECTRAL_FEATURES_TIR
+        )
+        common = matched.loc[mask, output_columns]
+        tables.append(common)
+        counts = outcome["status"].value_counts()
+        audit.update({status: int(counts.get(status, 0)) for status in STATUSES[1:]})
+        audit.update(
+            status="ready" if len(common) else "no_retained_intervals",
+            retained_match_rows=len(matched),
+            common_cohort_rows=len(common),
+            anomalies_ge_1ppm=int((common[TARGET] >= 1).sum()),
+            no_usable_swir=int(
+                (~np.isfinite(matched[SPECTRAL_FEATURES_SWIR]).any(axis=1)).sum()
+            ),
+            no_usable_tir=int(
+                (~np.isfinite(matched[SPECTRAL_FEATURES_TIR]).any(axis=1)).sum()
+            ),
+            duplicates_removed=int(outcome["duplicates_removed"].sum()),
+        )
+
+    dataset = (
+        pd.concat(tables, ignore_index=True)
+        if tables
+        else pd.DataFrame(columns=output_columns)
+    )
+    dataset = dataset.sort_values(["Dataset_ID", DEPTH_FROM], ignore_index=True)
+    return (
+        dataset,
+        pd.DataFrame(audit_rows, columns=HOLE_AUDIT_COLUMNS),
+        pd.DataFrame(issues, columns=ISSUE_COLUMNS),
+    )
 
 
 def main() -> None:
