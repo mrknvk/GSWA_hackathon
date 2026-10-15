@@ -80,9 +80,9 @@ The new `ml_dataset_expanded.csv` contains the same ten spectral predictors and
 metadata as the pilot. Both positive and negative holes are considered; no
 grade-dependent selection is made after inventory eligibility.
 
-The pilot files and default ML experiment remain unchanged. To train on the
-expanded output later, explicitly set `DATASET_VARIANT = "expanded"` in
-`ml_pipeline/ml.ipynb`. This establishes a new experimental cohort and split;
+The pilot files remain unchanged. `ml_pipeline/ml.ipynb` currently selects
+`DATASET_VARIANT = "expanded"`; set it to `"pilot"` to reproduce the original
+22-hole experiment. Changing the dataset establishes a new cohort and split;
 do not compare its scores as though the original holdout were unchanged.
 Inspect unknown project labels and positive-project coverage first.
 
