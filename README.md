@@ -42,36 +42,6 @@ in the package index and store them locally under:
 data/extracted_data/mineral_logs/
 ```
 
-Both the source database and extracted mineral logs are excluded from this Repo.
-
-
-## Public Repository Policy
-
-- Keep code, notebook source, synthetic tests, attribution, and official metadata.
-- Keep source data, extracted tables, sample-level predictions, coordinates,
-  model artifacts, and local figures outside Git. A CSV is not automatically
-  safe to publish just because it is a table.
-- Put reviewed, aggregated result tables and reports under `reports/`.
-  Any published figures must be reviewed separately for source-data disclosure.
-- Do not commit notebook execution outputs or widget state: they can embed
-  sample-level tables and images even when the source CSVs are ignored.
-
-Before preparing a public commit, clear notebook outputs:
-
-```bash
-PYTHONPATH=src uv run python -m gswa_hackathon.prepare_public_notebooks --clear
-```
-
-Check without changing files:
-
-```bash
-PYTHONPATH=src uv run python -m gswa_hackathon.prepare_public_notebooks
-uv run pytest
-```
-
-These safeguards apply to the current working tree and future commits. They do
-not remove data from old Git history; history rewriting is intentionally out
-of scope. Ignoring a file also does not untrack an already tracked file.
 
 ## Installation
 
