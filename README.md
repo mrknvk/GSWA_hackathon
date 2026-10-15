@@ -42,6 +42,8 @@ in the package index and store them locally under:
 data/extracted_data/mineral_logs/
 ```
 
+An matching algorithm is contained in this repository that allows merging by matching ids and cleansing of both datasets.
+
 
 ## Installation
 
